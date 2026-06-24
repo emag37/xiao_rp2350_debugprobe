@@ -71,6 +71,20 @@ cmake -DDEBUG_ON_PICO=1 -DPICO_BOARD=pico2 ../
 
 This will build with the configuration for the Pico 2 and call the output program `debugprobe_on_pico2.uf2`.
 
+## Building for the XIAO RP2350
+
+If using an existing debugprobe clone:
+- You must completely regenerate your build directory, or use a different one.
+- You must also sync and update submodules.
+- `PICO_SDK_PATH` must point to a version 2.0.0 or greater install.
+
+```bash
+git submodule sync
+git submodule update --init --recursive
+mkdir build-xiao
+cd build-xiao
+cmake -DDEBUG_ON_PICO=1 -DPICO_BOARD=seeed_xiao_rp2350 ../
+
 ## AutoBaud Mode
 
 Mode which automatically detects and sets the UART baud rate as data arrives.

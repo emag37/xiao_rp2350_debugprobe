@@ -65,8 +65,11 @@ do { \
 
 // TODO tie this up with PICO_BOARD defines in the main SDK
 
-#ifdef DEBUG_ON_PICO 
+#ifdef 
+#if PICO_1 == 1 ||  PICO_2 == 1
 #include "board_pico_config.h"
+#elif PICO2_XIAO == 1
+#include "board_xiao_rp2350_config.h"
 #else
 #include "board_debug_probe_config.h"
 #endif

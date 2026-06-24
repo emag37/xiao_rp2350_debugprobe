@@ -74,10 +74,17 @@ if (DEBUG_ON_PICO)
         set_target_properties(debugprobe PROPERTIES
             OUTPUT_NAME "debugprobe_on_pico"
         )
+        target_compile_definitions(debugprobe PRIVATE PICO_1=1)
     elseif (PICO_BOARD STREQUAL "pico2")
         set_target_properties(debugprobe PROPERTIES
             OUTPUT_NAME "debugprobe_on_pico2"
         )
+        target_compile_definitions(debugprobe PRIVATE PICO_2=1)
+    elseif (PICO_BOARD STREQUAL "seeed_xiao_rp2350")
+        set_target_properties(debugprobe PROPERTIES
+            OUTPUT_NAME "debugprobe_on_xiao_pico2"
+        )
+        target_compile_definitions(debugprobe PRIVATE XIAO_PICO2=1)
     else ()
         message(SEND_ERROR "Unsupported board ${PICO_BOARD}")
     endif ()
