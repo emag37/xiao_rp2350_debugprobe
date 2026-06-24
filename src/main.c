@@ -152,7 +152,7 @@ int main(void) {
     usb_serial_init();
     cdc_uart_init();
     tusb_init();
-    stdio_uart_init();
+    //stdio_uart_init(); - used for SWO
 
     DAP_Setup();
 
