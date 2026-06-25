@@ -11,6 +11,11 @@ static ARM_USART_SignalEvent_t eventHandler;
 
 void rx_thread(void *ptr);
 
+typedef struct {
+  uint32_t rx_bytes;
+  bool rx_active;
+} RxStatus_t;
+
 typedef struct  {
   uint8_t *data;
   uint32_t num;
@@ -35,8 +40,7 @@ typedef struct {
 
 static TaskHandle_t rxThreadHandle;
 static QueueHandle_t cmdQ;
-static bool rxActive;
-static uint32_t rxBytes;
+static QueueHandle_t statusQ;
 
 static ARM_USART_CAPABILITIES GetCapabilities(void) {
   return (ARM_USART_CAPABILITIES) {
@@ -65,6 +69,12 @@ static ARM_USART_CAPABILITIES GetCapabilities(void) {
   };
 }
 
+static RxStatus_t GetRxStatus(void) {
+  RxStatus_t status = {0};
+  xQueuePeek(statusQ, &status, 0);
+  return status;
+}
+
 static ARM_DRIVER_VERSION GetVersion(void) {
   return (ARM_DRIVER_VERSION) {
     .api = ARM_USART_API_VERSION,
@@ -75,6 +85,7 @@ static ARM_DRIVER_VERSION GetVersion(void) {
 static int32_t Initialize (ARM_USART_SignalEvent_t cb_event) {
     eventHandler = cb_event;
     cmdQ = xQueueCreate(2, sizeof(Cmd_t));
+    statusQ = xQueueCreate(1, sizeof(RxStatus_t));
     gpio_set_function(SWO_UART_RX, GPIO_FUNC_UART);
     gpio_set_pulls(SWO_UART_RX, 1, 0);
     uart_init(SWO_UART_INTERFACE, SWO_UART_BAUDRATE);
@@ -86,14 +97,8 @@ static int32_t Initialize (ARM_USART_SignalEvent_t cb_event) {
 static int32_t Uninitialize (void) {
     if (rxThreadHandle != NULL) {
       xQueueSend(cmdQ, &(Cmd_t){.type = CMD_STOP}, pdMS_TO_TICKS(250));
-      while (true) {
-        taskENTER_CRITICAL();
-        bool isRxActive = rxActive;
-        taskEXIT_CRITICAL();
-        if (!isRxActive) {
-          break;
-        }
-        vTaskDelay(pdMS_TO_TICKS(1));
+      while(uxQueueMessagesWaiting(cmdQ) > 0 || GetRxStatus().rx_active) {
+        vTaskDelay(pdMS_TO_TICKS(10));
       }
       vTaskDelete(rxThreadHandle);
       rxThreadHandle = NULL;
@@ -101,6 +106,11 @@ static int32_t Uninitialize (void) {
     if (cmdQ != NULL) {
       vQueueDelete(cmdQ);
       cmdQ = NULL;
+    }
+
+    if (statusQ != NULL) {
+      vQueueDelete(statusQ);
+      statusQ = NULL;
     }
     uart_deinit(SWO_UART_INTERFACE);
     return ARM_DRIVER_OK;
@@ -111,40 +121,21 @@ static int32_t PowerControl(ARM_POWER_STATE state) {
 }
 
 static int32_t Receive(void *data, uint32_t num) {
-  // Set rxActive before enqueuing so GetStatus().rx_busy is correct
-  // immediately after this call returns.
-  taskENTER_CRITICAL();
-  if (rxActive) {
-    taskEXIT_CRITICAL();
+  RxStatus_t current = {0};
+  xQueuePeek(statusQ, &current, 0);
+  if (current.rx_active) {
     return ARM_DRIVER_ERROR_BUSY;
   }
-  rxActive = true;
-  rxBytes = 0;
-  taskEXIT_CRITICAL();
 
-  Cmd_t cmd = {
-    .type = CMD_RX,
-    .data.rx = {
-      .data = data,
-      .num = num
-    }
-  };
-
+  Cmd_t cmd = { .type = CMD_RX, .data.rx = { .data = data, .num = num } };
   if (xQueueSend(cmdQ, &cmd, pdMS_TO_TICKS(250)) == pdFALSE) {
-    taskENTER_CRITICAL();
-    rxActive = false;
-    taskEXIT_CRITICAL();
     return ARM_DRIVER_ERROR_TIMEOUT;
   }
   return ARM_DRIVER_OK;
 }
 
 static uint32_t GetRxCount(void) {
-  uint32_t count;
-  taskENTER_CRITICAL();
-  count = rxBytes;
-  taskEXIT_CRITICAL();
-  return count;
+  return GetRxStatus().rx_bytes;
 }
 
 static int32_t Control(uint32_t control, uint32_t arg) {
@@ -176,9 +167,8 @@ static ARM_USART_STATUS GetStatus(void) {
   ARM_USART_STATUS ret_usart_status;
   memset(&ret_usart_status, 0, sizeof(ret_usart_status));
 
-  taskENTER_CRITICAL();
-  ret_usart_status.rx_busy = rxActive;
-  taskEXIT_CRITICAL();
+  RxStatus_t status = GetRxStatus();
+  ret_usart_status.rx_busy = status.rx_active;
   return ret_usart_status;
 }
 ARM_DRIVER_USART Driver_USART0 = {
@@ -209,6 +199,8 @@ void rx_thread(void *ptr)
   uint8_t* nextRxData = NULL;
   uint32_t nextRxLen = 0;
 
+  RxStatus_t localStatus = {0};
+
   while (1) {
     Cmd_t nextCmd;
     BaseType_t result = xQueueReceive(cmdQ, &nextCmd, nextInterval);
@@ -218,10 +210,8 @@ void rx_thread(void *ptr)
         case CMD_RX:
           nextRxData = nextCmd.data.rx.data;
           nextRxLen = nextCmd.data.rx.num;
-          taskENTER_CRITICAL();
-          rxActive = true;
-          rxBytes = 0;
-          taskEXIT_CRITICAL();
+          localStatus.rx_active = true;
+          localStatus.rx_bytes = 0;
           break;
         case CMD_SET_BAUDRATE:
           uart_set_baudrate(SWO_UART_INTERFACE, nextCmd.data.baudrate);
@@ -233,10 +223,7 @@ void rx_thread(void *ptr)
             eventHandler(ARM_USART_EVENT_RECEIVE_COMPLETE);
             nextRxData = NULL;
           }
-          taskENTER_CRITICAL();
-          rxActive = false;
-          taskEXIT_CRITICAL();
-          
+          localStatus.rx_active = false;
           break;
       }
     }
@@ -251,18 +238,15 @@ void rx_thread(void *ptr)
         thisReadBytes++;
       }
 
-      taskENTER_CRITICAL();
-      rxBytes += thisReadBytes;
-      taskEXIT_CRITICAL();
+      localStatus.rx_bytes += thisReadBytes;
     }
     bool recvComplete = false;
-    taskENTER_CRITICAL();
-    if(rxActive && nextRxLen == 0) {
+    if(localStatus.rx_active && nextRxLen == 0) {
         recvComplete = true;
-        rxActive = false;
+        localStatus.rx_active = false;
         nextRxData = NULL;
     }
-    taskEXIT_CRITICAL();
+    xQueueOverwrite(statusQ, &localStatus);
     if (recvComplete) {
         eventHandler(ARM_USART_EVENT_RECEIVE_COMPLETE);
     }
