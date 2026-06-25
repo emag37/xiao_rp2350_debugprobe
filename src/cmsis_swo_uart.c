@@ -74,7 +74,7 @@ static ARM_DRIVER_VERSION GetVersion(void) {
 
 static int32_t Initialize (ARM_USART_SignalEvent_t cb_event) {
     eventHandler = cb_event;
-    cmdQ = xQueueCreate(1, sizeof(Cmd_t));
+    cmdQ = xQueueCreate(2, sizeof(Cmd_t));
     gpio_set_function(SWO_UART_RX, GPIO_FUNC_UART);
     gpio_set_pulls(SWO_UART_RX, 1, 0);
     uart_init(SWO_UART_INTERFACE, SWO_UART_BAUDRATE);
@@ -85,6 +85,16 @@ static int32_t Initialize (ARM_USART_SignalEvent_t cb_event) {
 
 static int32_t Uninitialize (void) {
     if (rxThreadHandle != NULL) {
+      xQueueSend(cmdQ, &(Cmd_t){.type = CMD_STOP}, pdMS_TO_TICKS(250));
+      while (true) {
+        taskENTER_CRITICAL();
+        bool isRxActive = rxActive;
+        taskEXIT_CRITICAL();
+        if (!isRxActive) {
+          break;
+        }
+        vTaskDelay(pdMS_TO_TICKS(1));
+      }
       vTaskDelete(rxThreadHandle);
       rxThreadHandle = NULL;
     }
@@ -93,10 +103,6 @@ static int32_t Uninitialize (void) {
       cmdQ = NULL;
     }
     uart_deinit(SWO_UART_INTERFACE);
-    taskENTER_CRITICAL();
-    rxActive = false;
-    rxBytes = 0;
-    taskEXIT_CRITICAL();
     return ARM_DRIVER_OK;
 }
 
@@ -105,15 +111,16 @@ static int32_t PowerControl(ARM_POWER_STATE state) {
 }
 
 static int32_t Receive(void *data, uint32_t num) {
-  bool isRxActive;
-
+  // Set rxActive before enqueuing so GetStatus().rx_busy is correct
+  // immediately after this call returns.
   taskENTER_CRITICAL();
-  isRxActive = rxActive;
-  taskEXIT_CRITICAL();
-
-  if (isRxActive) {
+  if (rxActive) {
+    taskEXIT_CRITICAL();
     return ARM_DRIVER_ERROR_BUSY;
   }
+  rxActive = true;
+  rxBytes = 0;
+  taskEXIT_CRITICAL();
 
   Cmd_t cmd = {
     .type = CMD_RX,
@@ -122,7 +129,11 @@ static int32_t Receive(void *data, uint32_t num) {
       .num = num
     }
   };
+
   if (xQueueSend(cmdQ, &cmd, pdMS_TO_TICKS(250)) == pdFALSE) {
+    taskENTER_CRITICAL();
+    rxActive = false;
+    taskEXIT_CRITICAL();
     return ARM_DRIVER_ERROR_TIMEOUT;
   }
   return ARM_DRIVER_OK;
@@ -137,7 +148,18 @@ static uint32_t GetRxCount(void) {
 }
 
 static int32_t Control(uint32_t control, uint32_t arg) {
-    if (arg != 0) {
+    uint32_t op = control & ARM_USART_CONTROL_Msk;
+
+    if (op == ARM_USART_ABORT_RECEIVE ||
+        (op == ARM_USART_CONTROL_RX && arg == 0)) {
+      Cmd_t cmd = { .type = CMD_STOP };
+      if (xQueueSend(cmdQ, &cmd, pdMS_TO_TICKS(250)) == pdFALSE) {
+        return ARM_DRIVER_ERROR_TIMEOUT;
+      }
+      return ARM_DRIVER_OK;
+    }
+
+    if (op == ARM_USART_MODE_ASYNCHRONOUS && arg != 0) {
       Cmd_t cmd = {
         .type = CMD_SET_BAUDRATE,
         .data.baudrate = arg
@@ -146,8 +168,7 @@ static int32_t Control(uint32_t control, uint32_t arg) {
         return ARM_DRIVER_ERROR_TIMEOUT;
       }
     }
-    // Everything else matches the default, since we're synchronously reading we can't
-    // really abort transfer
+    // Everything else matches the default (8-N-1, no flow control) and is ignored.
     return ARM_DRIVER_OK;
 }
 
@@ -207,14 +228,14 @@ void rx_thread(void *ptr)
           nextInterval = calculate_interval(nextCmd.data.baudrate);
           break;
         case CMD_STOP:
-          taskENTER_CRITICAL();
-          rxActive = false;
-          taskEXIT_CRITICAL();
-          
+
           if (nextRxData != NULL) {
             eventHandler(ARM_USART_EVENT_RECEIVE_COMPLETE);
             nextRxData = NULL;
           }
+          taskENTER_CRITICAL();
+          rxActive = false;
+          taskEXIT_CRITICAL();
           
           break;
       }
@@ -233,14 +254,17 @@ void rx_thread(void *ptr)
       taskENTER_CRITICAL();
       rxBytes += thisReadBytes;
       taskEXIT_CRITICAL();
-      
-      if(rxActive && nextRxLen == 0) {
-        eventHandler(ARM_USART_EVENT_RECEIVE_COMPLETE);
-        taskENTER_CRITICAL();
+    }
+    bool recvComplete = false;
+    taskENTER_CRITICAL();
+    if(rxActive && nextRxLen == 0) {
+        recvComplete = true;
         rxActive = false;
-        taskEXIT_CRITICAL();
         nextRxData = NULL;
-      }
+    }
+    taskEXIT_CRITICAL();
+    if (recvComplete) {
+        eventHandler(ARM_USART_EVENT_RECEIVE_COMPLETE);
     }
   }
 }
