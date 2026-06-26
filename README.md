@@ -1,3 +1,7 @@
+## Notice
+
+This is a fork of the Raspberry Pi Debug Probe SWD/UART accessory designed to run on a XIAO RP2350 dev board. It also adds support for the SWO pin (replaces the SDIO use of UART0).
+
 # Debugprobe
 
 Firmware source for the Raspberry Pi Debug Probe SWD/UART accessory. Can also be run on a Raspberry Pi Pico or Pico 2.
