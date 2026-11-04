@@ -69,6 +69,8 @@ do { \
 #include "board_pico_config.h"
 #elif PICO2_XIAO == 1
 #include "board_xiao_rp2350_config.h"
+#elif PICO1_XIAO == 1
+#include "board_xiao_rp2040_config.h"
 #else
 #include "board_debug_probe_config.h"
 #endif

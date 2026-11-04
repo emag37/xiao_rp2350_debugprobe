@@ -43,6 +43,11 @@
 #define PROBE_UART_INTERFACE uart1
 #define PROBE_UART_BAUDRATE 115200
 
+// GPIO 1 is the reset pin on this board, so SWO uses UART0 RX on GPIO 13.
+#define SWO_UART_RX 13
+#define SWO_UART_INTERFACE uart0
+#define SWO_UART_BAUDRATE 115200
+
 #define PROBE_USB_CONNECTED_LED 25
 
 #define PROBE_PRODUCT_STRING "Debugprobe on Pico (CMSIS-DAP)"

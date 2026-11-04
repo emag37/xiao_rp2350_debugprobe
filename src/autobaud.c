@@ -47,7 +47,12 @@ static int sm = -1;
 // PIO program offset
 static int offset = -1;
 // UART RX GPIO 1 pin
+#ifdef PROBE_UART_RX
 static const uint rx_pin = PROBE_UART_RX;
+#else
+// No RX pin on this board; autobaud is never started.
+static const uint rx_pin = 0;
+#endif
 
 // Frequency hash table to store samples occurance
 static HashTable *freq_table;

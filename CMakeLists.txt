@@ -103,6 +103,11 @@ if (DEBUG_ON_PICO)
             OUTPUT_NAME "debugprobe_on_xiao_pico2"
         )
         target_compile_definitions(debugprobe PRIVATE PICO2_XIAO=1)
+    elseif (PICO_BOARD STREQUAL "seeed_xiao_rp2040")
+        set_target_properties(debugprobe PROPERTIES
+            OUTPUT_NAME "debugprobe_on_xiao_pico1"
+        )
+        target_compile_definitions(debugprobe PRIVATE PICO1_XIAO=1)
     else ()
         message(SEND_ERROR "Unsupported board ${PICO_BOARD}")
     endif ()

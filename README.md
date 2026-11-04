@@ -88,6 +88,28 @@ git submodule update --init --recursive
 mkdir build-xiao
 cd build-xiao
 cmake -DDEBUG_ON_PICO=1 -DPICO_BOARD=seeed_xiao_rp2350 ../
+```
+
+This will build with the configuration for the XIAO RP2350 and call the output program `debugprobe_on_xiao_pico2.uf2`.
+
+## Building for the XIAO RP2040
+
+If using an existing debugprobe clone:
+- You must completely regenerate your build directory, or use a different one.
+- You must also sync and update submodules.
+- `PICO_SDK_PATH` must point to a version 2.0.0 or greater install.
+
+```bash
+git submodule sync
+git submodule update --init --recursive
+mkdir build-xiao-rp2040
+cd build-xiao-rp2040
+cmake -DDEBUG_ON_PICO=1 -DPICO_BOARD=seeed_xiao_rp2040 ../
+```
+
+This will build with the configuration for the XIAO RP2040 and call the output program `debugprobe_on_xiao_pico1.uf2`.
+
+> **Note:** The XIAO RP2040 has no free UART1 RX pin, so SWO takes UART0 RX (GPIO 1 / D7) and the serial bridge is TX-only (GPIO 4 / D9). AutoBaud is unavailable on this board.
 
 ## AutoBaud Mode
 

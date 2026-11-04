@@ -55,9 +55,13 @@ static BaudInfo_t baud_info;
 
 void cdc_uart_init(void) {
     gpio_set_function(PROBE_UART_TX, GPIO_FUNC_UART);
+#ifdef PROBE_UART_RX
     gpio_set_function(PROBE_UART_RX, GPIO_FUNC_UART);
+#endif
     gpio_set_pulls(PROBE_UART_TX, 1, 0);
+#ifdef PROBE_UART_RX
     gpio_set_pulls(PROBE_UART_RX, 1, 0);
+#endif
     uart_init(PROBE_UART_INTERFACE, PROBE_UART_BAUDRATE);
 
 #ifdef PROBE_UART_TX_LED
@@ -221,12 +225,15 @@ void cdc_thread(void *ptr)
 
 void tud_cdc_line_coding_cb(uint8_t itf, cdc_line_coding_t const* line_coding)
 {
+#ifdef PROBE_UART_RX
   if (line_coding->bit_rate == MAGIC_BAUD) {
     if (!autobaud_running)
       autobaud_start();
     return;
   }
-  else if (autobaud_running) {
+  else
+#endif
+  if (autobaud_running) {
     autobaud_wait_stop();
   }
   uart_parity_t parity;
